@@ -1,4 +1,4 @@
-name: Build 
+name: Build and Release
 
 on:
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
           submodules: recursive
 
       - name: Install Dependencies
-        run: brew install ldid dpkg make jq
+        run: brew install ldid dpkg make jq swiftlint
 
       - name: Download Theos
         uses: actions/checkout@v4
@@ -184,25 +184,32 @@ jobs:
         run: |
           cd ${{ github.workspace }}/main
           
+          # Remove YTUHD and YouQuality tweaks to prevent errors/inclusion
+          rm -rf Tweaks/YTUHD
+          rm -rf Tweaks/YouQuality
+          # Remove them from Makefile if they are explicitly listed
+          sed -i '' "/YTUHD/d" Makefile
+          sed -i '' "/YouQuality/d" Makefile
+
           # Modify Makefile
           sed -i '' "s/^.*BUNDLE_ID.*$/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile
           sed -i '' "s/^.*DISPLAY_NAME.*$/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile
           sed -i '' "s/^.*PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
           
-          # Check if the specific SDK exists
-          SDK_PATH="${{ github.workspace }}/theos/sdks/iPhoneOS${{ inputs.sdk_version }}.sdk"
+          # Set up environment variables for Theos
+          export THEOS=${{ github.workspace }}/theos
+          export SDK_PATH=${{ github.workspace }}/theos/sdks/iPhoneOS${{ inputs.sdk_version }}.sdk
+          export TARGET="iphone:clang:${{ inputs.sdk_version }}:15.0"
+          export THEOS_PACKAGE_SCHEME=rootless
+          
           if [ ! -d "$SDK_PATH" ]; then
              echo "Error: SDK not found at $SDK_PATH"
              ls -R ${{ github.workspace }}/theos/sdks
              exit 1
           fi
 
-          # Build the package with overrides
-          # -fno-modules fixes the "declaration must be imported from module" errors in YTUHD
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 \
-            TARGET="iphone:clang:${{ inputs.sdk_version }}:15.0" \
-            SDK_PATH="$SDK_PATH" \
-            _THEOS_TARGET_CFLAGS="-fno-modules"
+          # Build the package
+          make package FINALPACKAGE=1
           
           # Get the generated IPA name
           PKG_NAME=$(ls -t packages | head -n1)
