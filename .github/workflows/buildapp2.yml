@@ -191,10 +191,18 @@ jobs:
           sed -i '' "/YTUHD/d" Makefile
           sed -i '' "/YouQuality/d" Makefile
 
-          # Modify Makefile
+          # Modify Makefile to use inputs
           sed -i '' "s/^.*BUNDLE_ID.*$/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile
           sed -i '' "s/^.*DISPLAY_NAME.*$/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile
           sed -i '' "s/^.*PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
+          
+          # Force TARGET in Makefile to match input SDK to prevent mismatch errors (like 17.5 not found)
+          # We check if TARGET is defined, if so replace it, otherwise append it.
+          if grep -q "TARGET =" Makefile; then
+            sed -i '' "s/^TARGET = .*$/TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0/" Makefile
+          else
+            echo "TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0" >> Makefile
+          fi
           
           # Set up environment variables for Theos
           export THEOS=${{ github.workspace }}/theos
@@ -209,9 +217,7 @@ jobs:
           fi
 
           # Build the package
-          make package FINALPACKAGE=1 \
-            TARGET="$TARGET" \
-            SDK_PATH="$SDK_PATH"
+          make package FINALPACKAGE=1
           
           # Get the generated IPA name
           PKG_NAME=$(ls -t packages | head -n1)
