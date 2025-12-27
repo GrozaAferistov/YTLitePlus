@@ -1,7 +1,4 @@
-# Original idea by @ISnackable. Many thanks to him for handling the most hardest parts!
-# https://github.com/ISnackable/CercubePlus/blob/main/.github/workflows/Build.yml
-
-name: Build and Release YTLitePlus
+name: Build 
 
 on:
   workflow_dispatch:
@@ -126,6 +123,8 @@ jobs:
             echo "Error: Decrypted YouTube URL is required."
             exit 1
           fi
+          # Mask the URL in logs for security
+          echo "::add-mask::${{ inputs.decrypted_youtube_url }}"
 
       - name: Prepare YouTube iPA
         run: |
@@ -186,17 +185,24 @@ jobs:
           cd ${{ github.workspace }}/main
           
           # Modify Makefile
-          sed -i '' "s/^BUNDLE_ID.*$/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile
-          sed -i '' "s/^DISPLAY_NAME.*$/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile
-          sed -i '' "s/^PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
+          sed -i '' "s/^.*BUNDLE_ID.*$/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile
+          sed -i '' "s/^.*DISPLAY_NAME.*$/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile
+          sed -i '' "s/^.*PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
           
-          # Set Target and SDK Path
-          # Ensure we target a version supported by the SDK (usually 14.0 or 15.0 minimum for modern YouTube)
-          sed -i '' "s/^export TARGET.*$/export TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0/" Makefile
-          sed -i '' "s/^export SDK_PATH.*$/export SDK_PATH = \$(THEOS)\/sdks\/iPhoneOS${{ inputs.sdk_version }}.sdk\//" Makefile
-          
-          # Build the package
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+          # Check if the specific SDK exists
+          SDK_PATH="${{ github.workspace }}/theos/sdks/iPhoneOS${{ inputs.sdk_version }}.sdk"
+          if [ ! -d "$SDK_PATH" ]; then
+             echo "Error: SDK not found at $SDK_PATH"
+             ls -R ${{ github.workspace }}/theos/sdks
+             exit 1
+          fi
+
+          # Build the package with overrides
+          # -fno-modules fixes the "declaration must be imported from module" errors in YTUHD
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 \
+            TARGET="iphone:clang:${{ inputs.sdk_version }}:15.0" \
+            SDK_PATH="$SDK_PATH" \
+            _THEOS_TARGET_CFLAGS="-fno-modules"
           
           # Get the generated IPA name
           PKG_NAME=$(ls -t packages | head -n1)
