@@ -55,6 +55,8 @@ jobs:
           path: main
           ref: ${{ github.event.inputs.commit_id || github.ref }}
           submodules: recursive
+      - name: Update Submodules to Latest
+        run: cd main && git submodule update --init --recursive --remote
       - name: Install Dependencies
         run: brew install ldid dpkg make
       - name: Download Theos
@@ -151,6 +153,11 @@ jobs:
           sed -i '' "s/^PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
           sed -i '' "s/^export TARGET.*$/export TARGET = iphone:clang:26.0:14.0/" Makefile
           sed -i '' "s/^export SDK_PATH.*$/export SDK_PATH = \$(THEOS)\/sdks\/iPhoneOS26.0.sdk\//" Makefile
+          # Remove unnecessary subprojects and injections to keep only essentials
+          sed -i '' "s/SUBPROJECTS += .*/SUBPROJECTS += Tweaks\/YouPiP/" Makefile
+          sed -i '' "s/YTLitePlus_INJECT_DYLIBS = .*/YTLitePlus_INJECT_DYLIBS = Tweaks\/YTLite\/var\/jb\/Library\/MobileSubstrate\/DynamicLibraries\/YTLite.dylib .theos\/obj\/YouPiP.dylib/" Makefile
+          sed -i '' "/YTLitePlus_EMBED_LIBRARIES/d" Makefile
+          sed -i '' "/YTLitePlus_EMBED_FRAMEWORKS/d" Makefile
           # Build the package
           make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
           # Rename the package based on the version
