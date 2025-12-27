@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       sdk_version:
-        description: "iOS SDK Version (e.g., 17.5)"
-        default: "17.5"
+        description: "iOS SDK Version (e.g., 16.5)"
+        default: "16.5"
         required: true
         type: string
       decrypted_youtube_url:
