@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release YTLitePlus
 
 on:
   workflow_dispatch:
@@ -209,7 +209,9 @@ jobs:
           fi
 
           # Build the package
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 \
+            TARGET="$TARGET" \
+            SDK_PATH="$SDK_PATH"
           
           # Get the generated IPA name
           PKG_NAME=$(ls -t packages | head -n1)
