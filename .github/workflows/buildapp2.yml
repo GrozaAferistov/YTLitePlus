@@ -90,9 +90,25 @@ jobs:
           # Download specific SDK version from aricloverALT/sdks
           git clone -n --depth=1 --filter=tree:0 https://github.com/aricloverALT/sdks/
           cd sdks
-          git sparse-checkout set --no-cone iPhoneOS${{ inputs.sdk_version }}.sdk
+          
+          # Try to find the SDK. The user uses 26.0 which might be a typo for 16.0 or custom.
+          # We list available SDKs if the specific one isn't found immediately to debug.
+          if git sparse-checkout set --no-cone iPhoneOS${{ inputs.sdk_version }}.sdk; then
+            echo "SDK found."
+          else
+            echo "SDK iPhoneOS${{ inputs.sdk_version }}.sdk not found in sparse checkout, trying all..."
+            git sparse-checkout disable
+          fi
+          
           git checkout
-          mv *.sdk $THEOS/sdks
+          
+          # Move the SDK to theos/sdks
+          if [ -d "iPhoneOS${{ inputs.sdk_version }}.sdk" ]; then
+            mv iPhoneOS${{ inputs.sdk_version }}.sdk $THEOS/sdks/
+          else
+             # Fallback: move any SDK found
+             mv *.sdk $THEOS/sdks/ || echo "No SDK moved!"
+          fi
         env:
           THEOS: ${{ github.workspace }}/theos
 
@@ -184,34 +200,55 @@ jobs:
         run: |
           cd ${{ github.workspace }}/main
           
-          # Remove YTUHD and YouQuality tweaks to prevent errors/inclusion
+          # Remove YTUHD and YouQuality tweaks to prevent errors/inclusion and module issues
           rm -rf Tweaks/YTUHD
           rm -rf Tweaks/YouQuality
           # Remove them from Makefile if they are explicitly listed
           sed -i '' "/YTUHD/d" Makefile
           sed -i '' "/YouQuality/d" Makefile
 
-          # Modify Makefile to use inputs
+          # Modify Makefile variables
           sed -i '' "s/^.*BUNDLE_ID.*$/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile
           sed -i '' "s/^.*DISPLAY_NAME.*$/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile
           sed -i '' "s/^.*PACKAGE_VERSION.*$/PACKAGE_VERSION = ${{ env.YT_VERSION }}-${{ env.YTLITE_VERSION }}/" Makefile
           
-          # Force TARGET in Makefile to match input SDK to prevent mismatch errors (like 17.5 not found)
-          # We check if TARGET is defined, if so replace it, otherwise append it.
-          if grep -q "TARGET =" Makefile; then
-            sed -i '' "s/^TARGET = .*$/TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0/" Makefile
-          else
-            echo "TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0" >> Makefile
-          fi
+          # -------------------------------------------------------------------------
+          # CRITICAL FIXES FOR SDK 26.0 / MODULE ERRORS
+          # -------------------------------------------------------------------------
           
-          # Set up environment variables for Theos
+          # 1. Override TARGET to match the input SDK version exactly.
+          # This fixes the "SYSROOT ... does not appear to exist" error if Makefile has a different default (e.g. 17.5).
+          # We remove any existing TARGET line and add the correct one at the top.
+          sed -i '' "/^TARGET =/d" Makefile
+          # Insert at top
+          sed -i '' "1i\\
+          TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0\\
+          " Makefile
+
+          # 2. Disable Modules (-fno-modules).
+          # This fixes "fatal error: could not build module" (CoreFoundation, std_float_h, etc.)
+          # common with custom/patched SDKs (like 26.0) on newer Xcode runners.
+          sed -i '' "1i\\
+          THEOS_PACKAGE_SCHEME = rootless\\
+          ARCHS = arm64\\
+          include \$(THEOS)/makefiles/common.mk\\
+          " Makefile
+          
+          # Append CFLAGS to disable modules to the common makefiles or project makefile
+          # We use export to ensure sub-makes inherit it.
+          export TARGET_CFLAGS="-fno-modules -Wno-error"
+          export TARGET_CXXFLAGS="-fno-modules -Wno-error"
+          
+          # Also patch the Makefile to include these flags explicitly just in case env vars are ignored
+          echo "ADDITIONAL_CFLAGS += -fno-modules -Wno-error" >> Makefile
+          echo "ADDITIONAL_CXXFLAGS += -fno-modules -Wno-error" >> Makefile
+
+          # Check SDK existence before building
           export THEOS=${{ github.workspace }}/theos
           export SDK_PATH=${{ github.workspace }}/theos/sdks/iPhoneOS${{ inputs.sdk_version }}.sdk
-          export TARGET="iphone:clang:${{ inputs.sdk_version }}:15.0"
-          export THEOS_PACKAGE_SCHEME=rootless
           
           if [ ! -d "$SDK_PATH" ]; then
-             echo "Error: SDK not found at $SDK_PATH"
+             echo "::error::SDK not found at $SDK_PATH. Please check the version."
              ls -R ${{ github.workspace }}/theos/sdks
              exit 1
           fi
